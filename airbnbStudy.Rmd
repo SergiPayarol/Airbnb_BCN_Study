@@ -1,0 +1,1669 @@
+---
+title: 'LECTURA, PREPROCESAMIENTO, EDA Y MODELADO EN R'
+author: "Autor: Sergi Payarol Calzado"
+date: "2023"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval=T, echo=T)
+```
+
+
+
+**LECTURA, PREPROCESAMIENTO, EDA Y MODELADO EN R**
+
+
+En este proyecto se realizarán las etapas de lectura, preprocesamiento, análisis exploratorio de los datos y modelado sobre los datos de Airbnb correspondientes a BCN.
+Cabe destacar, que el propósito de este proyecto es experimentar con los datos que nos aporta Airbnb. En ningún caso se ha querido realizar un estudio exhaustivo de los datos o querer obtener resultados aplicables. Por lo tanto, no se han recogido muchos más factores de los que aporta este juego de datos, como por ejemplo la característica socioeconómica de la población, el flujo de turismo que recibe cada barrio, los m2 de los pisos, etc. 
+
+Para realizar este trabajo, se planteará un objetivo de partida, se hará una lectura y procesamiento de los datos. Por lo tanto, se limpiarán los datos sesgados, nulos, etc. se trasformarán aquellas características que así lo requieran y se dejará el juego de datos listo para hacer el análisis.
+
+Una vez se hayan analizado todas las variables y se haya encontrado aquellas características con cierta correlación y que dan sentido a nuestro objetivo, se seleccionaran aquellos factores más importantes para la etapa de modelado.
+
+A continuación, presentamos el objetivo al que se quiere llegar.
+
+**Objetivo**
+
+El objetivo principal de este proyecto es el de obtener la probabilidad de que un barrio de BCN sea susceptible al incremento de inmuebles turísticos (inscritos en Airbnb). 
+
+Es importante remarcar que la probabilidad debería de ser muy baja, prácticamente nula. 
+El 26 de enero de 2022 entró en vigor el Plan especial urbanístico de alojamientos turísticos (PEUAT). En este Plan se recogen las diferentes áreas en las que se divide Barcelona. En cada una de estas zonas hay unas condiciones que limitan o prohíben el aumento de oferta por parte de Airbnb. Veamos un resumen muy breve de las condiciones de estas zonas. Podéis ver una información más detallada en su [página](https://ajuntament.barcelona.cat/pla-allotjaments-turistics/es) web. 
+
+- **Zona 1**: Es el área central de la ciudad. Se trata de una zona de decrecimiento. No se permite ni la implantación, ni la ampliación de plazas para alojamiento turístico.
+
+- **Zona 2**: La periferia más próxima del centro. En esta zona se mantienen las plazas que hay. En caso de que un inmueble registrado produzca baja en el censo de establecimientos, se podrá incorporar otro establecimiento con el mismo número de plazas. En ningún caso se permitirá la ampliación del número de plazas existente.
+
+- **Zona 3**:  Corresponden a los barrios periféricos de la ciudad. En esta se permitirá implantar y aumentar el número de plazas ya existentes, bajo unas condiciones impuestas por el Plan especial.
+
+- **Zona 4**: Son áreas en transformación localizadas en diferentes puntos de la ciudad. En estas zonas no se permiten nuevos alojamientos turísticos. La baja de uno permite abrir otra en la zona 3.
+
+Aparte de esta regulación, hay que destacar los estragos de la pandemia que posiblemente ha derivado a una caída en picado del número de inscritos en esta plataforma. Una de las preguntas que nos podríamos hacer es si los datos que hemos obtenido de Airbnb representan la realidad de una BCN más regulada con respecto a alojamientos turísticos. 
+
+Una vez planteado el objetivo y hecho una breve introducción, procederemos con la lectura de los datos.
+
+
+# Lectura
+
+Antes de nada, cargamos las librerías necesarias para este proyecto.
+
+```{r message= FALSE, warning=FALSE}
+pacman::p_load(tidyverse, corrplot, leaflet, openrouteservice, rgdal, mltools, data.table, raster, sf, htmltools, caret, sp, factoextra, VGAM, splitstackshape, ROCR)
+```
+
+
+Cargamos los datos.
+
+```{r message= FALSE, warning=FALSE}
+df <- read.csv("data/listings_ext.csv", sep = ",")
+airbnb <- df
+# Número de filas
+nrow(df)
+# Número de columnas
+ncol(df)
+```
+
+
+Descartamos aquellas variables que vemos que no nos aportaran nada a simple vista.
+
+```{r message= FALSE, warning=FALSE}
+airbnb[ ,c('name', 'host_name', 'host_location', 'listing_url', 'scrape_id', 'last_scraped',
+       'source', 'description', 'neighborhood_overview', 'picture_url', 
+       'host_url', 'calendar_last_scraped', 'host_about', 'host_thumbnail_url', 
+       'host_picture_url', 'calendar_updated', 'license', 'host_verifications', 'bathrooms',
+       'neighbourhood', 'host_neighbourhood', 'host_listings_count', 'minimum_minimum_nights',
+       'minimum_maximum_nights', 'maximum_maximum_nights', 'calculated_host_listings_count',
+       'calculated_host_listings_count_entire_homes', 'calculated_host_listings_count_private_rooms',
+       'calculated_host_listings_count_shared_rooms', 'maximum_minimum_nights',
+       'minimum_nights_avg_ntm', 'maximum_nights_avg_ntm', 'neighbourhood_group_cleansed', 
+       'instant_bookable', 'first_review', 'last_review', 'number_of_reviews_ltm',
+       'number_of_reviews_l30d', 'property_type','review_scores_accuracy',
+           'review_scores_cleanliness', 'review_scores_checkin',
+           'review_scores_communication','review_scores_value'
+       )] <- list(NULL)
+
+head(airbnb, 5)
+```
+
+
+Tenemos un total de 15778 filas y 75 columnas. 
+
+Hemos descartado un buen número de variables. Algunas de estas características son interesantes en el caso de que queramos utilizar procesamiento de lenguaje natural. No obstante, para nuestro caso de estudio las hemos descartado. A continuación, mostramos la definición de algunas de las variables más importantes, para ver la descripción de cada una de ellas podéis dirigiros a este [spreadsheet](https://docs.google.com/spreadsheets/d/1iWCNJcSutYqpULSQHlNyGInUvHg2BoUGoNRIGa6Szc4/edit#gid=1322284596).
+
+- **host_id**: identificador único del host.
+- **host_since**: Fecha en la que el usuario/host fue creado.
+- **neighbourhood_cleansed**: Nombre del barrio donde está ubicado el inmueble.
+- **amenities**: Listado de elementos materiales de que dispone el inmueble.
+- **Price**: Precio de la estancia por persona (en dólares).
+- **availability_365**: Disponibilidad anual del anuncio.
+- **number_of_reviews**: Número total de reseñas que tiene el anuncio.
+- **reviews_scores_rating**: Puntuación total otorgada por el guest.
+- **reviews_scores_location**: Puntuación sobre la localización de la zona donde está el anuncio.
+- **reviews_per_month**: Media de reseñas que tiene el anuncio desde que se publicó.
+
+
+A continuación, mostraremos la estructura de los datos.
+
+```{r message= FALSE, warning=FALSE}
+summary(airbnb)
+```
+
+Observamos que algunas variables muestran valores nulos.
+
+
+```{r message= FALSE, warning=FALSE}
+colSums(airbnb=="" | airbnb== " ")
+```
+
+Vemos que además de valores NaN también tenemos espacios vacíos o con espacios en blanco. 
+
+# Preprocesamiento
+
+A continuación, seguiremos con la lectura de nuestro juego de datos y empezaremos a hacer limpieza.
+
+**host_since**
+
+```{r message= FALSE, warning=FALSE}
+airbnb[airbnb$host_since == "",]
+airbnb <- airbnb[!(airbnb$host_since == ""),]
+```
+
+host_since tiene solo dos observaciones con valores NA. En este caso las eliminamos.
+
+**host_response_time**
+
+Limpiamos y convertimos N/A a 0 para así poder calcular la probabilidad de que un host conteste y acepte a un huésped. 
+
+Para calcular esta probabilidad hay que tener en cuenta que estos dos sucesos son independientes. Por lo que:
+
+$$
+P(A y B) = P(A) · P(B) 
+$$
+
+```{r message= FALSE, warning=FALSE}
+
+# Eliminamos filas con un tiempo y un rate de respuesta y aceptación == N/A.
+airbnb <- airbnb[!(airbnb$host_response_time == 'N/A' &
+           airbnb$host_response_rate == 'N/A' & 
+           airbnb$host_acceptance_rate == 'N/A'),]
+
+# Eliminamos el símbolo "%".
+airbnb$host_response_rate<-sub("?\\%", "", airbnb$host_response_rate)
+airbnb$host_acceptance_rate<-sub("?\\%", "", airbnb$host_acceptance_rate)
+
+# Obtenemos la media de la valoración de respuesta.
+mean_response_rate <- mean(as.numeric(airbnb$host_response_rate[!(airbnb$host_response_rate == 'N/A' |
+                                              airbnb$host_response_rate == '' |
+                                                airbnb$host_response_rate == '0')]))
+
+# Obtenemos la media de la valoración de aceptación.
+mean_acceptance_rate <- mean(as.numeric(airbnb$host_acceptance_rate[!(airbnb$host_acceptance_rate == 'N/A' |
+                                                                    airbnb$host_acceptance_rate == '' |
+                                                                      airbnb$host_acceptance_rate == '0')]))
+
+# Eliminamos filas con respuesta y aceptación = 0
+
+airbnb <- airbnb[!(airbnb$host_response_rate == 0 & airbnb$host_acceptance_rate == 0),]
+
+# Convertimos aquellos valores NA de host_response_rate en la media de su distribución.
+airbnb$host_response_rate[which(airbnb$host_response_rate  == '' | 
+                                  airbnb$host_response_rate  == 'N/A' |
+                                  airbnb$host_response_rate == '0')] <- mean_response_rate
+
+# Hacemos los mismo con host_acceptance_rate.
+airbnb$host_acceptance_rate[which(airbnb$host_acceptance_rate  == '' | 
+                                    airbnb$host_acceptance_rate  == 'N/A' |
+                                    airbnb$host_acceptance_rate == '0')] <- mean_acceptance_rate
+
+airbnb$host_response_rate <- as.numeric(airbnb$host_response_rate)
+airbnb$host_acceptance_rate <- as.numeric(airbnb$host_acceptance_rate)
+
+# Calculamos la probabilidad P(A) · P(B)
+airbnb$prob_res_acc <- round(with(airbnb, (host_response_rate/100) * (host_acceptance_rate/100)), 2)
+
+airbnb[ ,c('host_response_time', 'host_response_rate', 'host_acceptance_rate')] <- list(NULL)
+
+summary(airbnb$prob_res_acc)
+```
+
+Observamos ya en el primer cuartil que la probabilidad que el host conteste y acepte al huésped es del 0.84, un porcentaje muy elevado.
+
+
+**host_is_superhost** 
+
+```{r message= FALSE, warning=FALSE}
+airbnb <- airbnb[!(airbnb$host_is_superhost == ""),]
+```
+
+Eliminamos la fila donde superhost no tiene valor.
+
+**bathroom_text**
+
+Nos hemos dado cuenta de que en la columna de bathrooms (variable eliminada al principio) estaba llena de NA. Por lo que hemos decidido eliminarla y trabajar con bathroom_text.
+
+Seguidamente, agrupamos y pasamos aquellas categorías que se pueden agrupar en un valor en bathroom_text. Aprovechamos y convertimos las casillas vacías a 0.5.
+
+```{r message= FALSE, warning=FALSE}
+# Limpiamos bathroom_text
+unique(airbnb$bathrooms_text)
+airbnb$bathrooms_text[which(airbnb$bathrooms_text == 'Shared half-bath' |
+                              airbnb$bathrooms_text == 'Private half-bath' |
+                              airbnb$bathrooms_text == 'Half-bath' |
+                              airbnb$bathrooms_text == '0 baths' |
+                              airbnb$bathrooms_text == '' |
+                              airbnb$bathrooms_text == '0 shared baths')] <- '0.5'
+
+airbnb$bathrooms_text <- as.numeric(str_extract(airbnb$bathrooms_text, "[0-9]?[.]?[0-9]"))
+names(airbnb)[13] <- "bathrooms"
+```
+
+Ya que la variable de bathrooms no nos daba mucha información, hemos aprovechado la descripción del baño de la variable bathroom_text y hemos extraído el valor numérico.
+
+
+**Bedrooms**
+
+```{r message= FALSE, warning=FALSE}
+# Bedrooms
+
+nrow(airbnb[which(is.na(airbnb$bedrooms)), ])
+```
+
+Vemos el total de NA que tiene la variable bedrooms.
+
+A continuación transformaremos los valores nulos aplicando los siguientes criterios.
+
+```{r message= FALSE, warning=FALSE}
+# bedrooms con 1 cama = 1 bedroom.
+airbnb$bedrooms[which(is.na(airbnb$bedrooms) & airbnb$beds == 1) ] <- 1
+
+# bedrooms con 2 camas y <= 2 accomodates = 1 bedroom.
+airbnb$bedrooms[which(is.na(airbnb$bedrooms) & airbnb$beds == 2 &
+                        airbnb$accommodates <= 2) ] <- 1
+
+# bedrooms con 4 o menos camas y > 2 accomodates = 2 bedroom.
+airbnb$bedrooms[which(is.na(airbnb$bedrooms) & airbnb$beds <= 4 &
+                        airbnb$accommodates <= 4) ] <- 2
+
+# bedrooms con 6 o menos camas y > 2 accomodates = 2 bedroom.
+airbnb$bedrooms[which(is.na(airbnb$bedrooms) & airbnb$beds <= 6 &
+                        airbnb$accommodates <= 6) ] <- 3
+
+# bedrooms con 8 camas = 5 bedroom.
+airbnb$bedrooms[which(is.na(airbnb$bedrooms) & airbnb$beds == 8) ] <- 5
+
+# Eliminamos filas que tengan como NA en bedrooms y beds.
+airbnb <- airbnb[!(is.na(airbnb$bedrooms) & is.na(airbnb$beds)), ]
+```
+
+Con los valors NA de Bedrooms hemos obtenido el número aproximado de habitaciones a partir de las camas y el número de huéspedes permitido. Finalmente, hemos descartado aquellos anuncios con valores NA en bedrooms y beds.
+
+
+**beds**
+
+```{r message= FALSE, warning=FALSE}
+# BEDS
+nrow(airbnb[is.na(airbnb$beds),])
+
+# beds con 1 habitación y <= 2 personas para acomodar.
+airbnb$beds[which(is.na(airbnb$beds) & airbnb$bedrooms == 1 &
+                        airbnb$accommodates <= 2) ] <- 1
+
+# beds con 2 habitaciones y <= 4 personas para acomodar.
+airbnb$beds[which(is.na(airbnb$beds) & airbnb$bedrooms == 2 &
+                    airbnb$accommodates <= 4) ] <- 2
+
+# Eliminamos filas con valores NA en beds
+airbnb <- airbnb[!(is.na(airbnb$beds)), ]
+```
+
+En la variable beds se han encontrado valores nulos. En este caso hemos obtenido el número de camas aproximado a partir del nombre de camas y acompañantes.
+
+
+Seguidamente, eliminamos las filas que no disponen de la valoración en general. Son un total de 2332 filas.
+
+**review_scores_rating**
+
+```{r message= FALSE, warning=FALSE}
+# review_scores_rating
+airbnb <- airbnb[!(is.na(airbnb$review_scores_rating)),]
+```
+
+A continuación, calcularemos la media de anuncios por mes que tiene cada barrio y añadiremos una nueva columna al df airbnb con estos datos.
+
+**reviews_per_month**
+
+```{r message= FALSE, warning=FALSE}
+# reviews_per_month -> average_reviews_neighb
+
+average_reviews_neighb <- as.data.frame(aggregate(airbnb$reviews_per_month, by=list(Category=airbnb$neighbourhood_cleansed), FUN=mean))
+
+average_reviews_neighb$x <- round(average_reviews_neighb$x, 2)
+names(average_reviews_neighb)[1:2] <- c("neighbourhood_cleansed", "average_reviews_neighb")
+
+
+airbnb <- merge(airbnb, average_reviews_neighb, by="neighbourhood_cleansed", all.x = TRUE)
+```
+
+
+Seguidamente, trabajaremos con la valoración de la localización del inmueble ofertado. Es importante remarcar que Airbnb no da la localización exacta de cada inmueble. Por lo que la localización no será exacta y habrá unos 150 m de imprecisión. De todas formas, nosotros trabajaremos esta variable como si tubiésemos la geolocalización exacta del inmueble.
+
+
+**review_scores_location**
+
+```{r message= FALSE, warning=FALSE}
+# review_scores_location
+length(airbnb$id[is.na(airbnb$review_scores_location)])
+```
+
+Vemos que tenemos 25 observaciones con valores NA. En este caso, podríamos sacar la media de la puntuación de todas las observaciones y transformar los valores nulos con este valor. No obstante, hemos decidido sacar partido de la API de OpenStreetMaps y extraer una valoración según unos criterios establecidos. Cabe decir, que esta parte es muy subjetiva y que los criterios de valoración podrían abarcar mucha más información. Para estos casos, hemos buscado unos criterios simples y sencillos de implementar. 
+
+Los criterios que vamos a seguir son los siguientes:
+
+- Obtendremos los elementos que configuran el entorno del inmueble en un radio de 500 m. Seguidamente, valoraremos con más puntuación aquellas áreas que dispongan de estaciones de tren/bus/metro y atracciones y con menos puntuación a los supermercados, cafés, restaurantes y parkings. La valoración máxima que podrá tener un inmueble es de 3 puntos.
+
+- Calcularemos el índice de vegetación (NDVI). Aquellas zonas con más de 0.30 tendrán 2 puntos; < 0.30 = 1, y < de 0.20 = 0.5 puntos. Es importante remarcar que la puntuación del NDVI es baja, ya que estamos ubicados en zona urbana.
+
+A continuación crearemos un df "nanLocation" donde almacenaremos el valor NDVI y la puntuación de los elementos que configuran el entorno del piso en un radio de 500 m. 
+
+Primero, calcularemos la puntuación de los elementos que configuran cada inmueble.
+
+```{r message= FALSE, warning=FALSE}
+nanLocation <- airbnb[is.na(airbnb$review_scores_location),]
+nanLocation <- nanLocation[c('latitude', 'longitude')]
+# Reseteamos índice.
+rownames(nanLocation) <- 1:nrow(nanLocation)    
+
+# Creamos una nueva columna donde pondremos la puntuación de los elementos.
+nanLocation$elementScore <- NA
+
+# Creamos una función parametrizada, donde le tendremos que pasar los valores de latitud y longitud para así calcular la puntuación.
+
+getScoreElements <- function(lat, lon){
+    
+    services = data.frame()
+  # Creamos geometría.
+    geometry <- list(
+      geojson = list(
+        type = "Point",
+        coordinates = c(lon, lat)
+      ),
+      buffer = 500
+    )
+    # Obtenemos elementos en un radio de 500 m.
+    dfPois <- ors_pois(
+      request = 'pois',
+      geometry = geometry,
+      limit = 2000,
+      sortby = "distance",
+      filters = list(
+        wheelchair = "yes"
+      ),
+      output = 'sf'
+    )
+    
+    # Filtramos y obtenemos valores generales.
+    for (i in dfPois$category_ids){
+      if (typeof(i[[1]][1]) == "list"){
+        output = i[[1]][[1]][1]
+      }
+      else {
+        output = i[[1]][1]
+      }
+      services = rbind(services, output)
+    }
+    colnames(services)<-c("Services")
+  
+  # Agregamos los elementos.
+  elements <- aggregate(services$Services, by=list(Category=services$Services), FUN= length)
+  
+  # A continuación, calculamos la puntuación, iterando por los elementos.
+  total <- 0
+  matches <- 0
+  
+  for (i in 1:nrow(elements)){
+    
+    list <- c("station", "attraction", "supermarket", "cafe", "restaurant", "parking")
+    element <- elements[i,][1]
+    quantity <- elements[i,][2]
+    
+    if(element %in% list){
+      matches <- matches + 1
+      if (quantity >= 2){
+        total <- total + 0.5
+      }
+      else {
+        total <- total + 0.25
+      }
+    }
+  }
+  return(total)  
+}
+
+# Rellenamos la columna de elementScore con la puntuación.
+
+for (i in 1:nrow(nanLocation)){
+  nanLocation$elementScore[i] <- getScoreElements(nanLocation$latitude[i], nanLocation$longitude[i])
+}
+```
+
+```{r message= FALSE, warning=FALSE}
+summary(nanLocation)
+```
+A continuación, obtendremos la puntuación NDVI.
+
+```{r message= FALSE, warning=FALSE}
+#https://opendata-ajuntament.barcelona.cat/data/es/dataset/cobertura-vegetal-ndvi
+ndvi = raster('data/ndvi_2019.tif')
+
+dt <- st_as_sf(nanLocation, coords = c("longitude","latitude"), crs = 4326)
+
+# Transformamos grados a decimales.
+ndvitrans <- st_transform(dt, 25831)
+
+# Creamos columna ndvi.
+nanLocation$ndvi <- NA
+
+# Iteramos por los puntos (pisos). Le aplicamos un buffer de 500 m y extraemos el valor medio del raster (ndvi). Por último, pasamos los valores a la columna ndvi.
+
+for (i in 1:nrow(ndvitrans)){
+  value <- round(raster::extract(ndvi, ndvitrans[i,], buffer=500, fun=mean, na.rm=TRUE), 2)
+  nanLocation$ndvi[i] <- value
+}
+
+# Discretizamos los valores de NDVI para otorgarle una puntuación.
+
+nanLocation$scoreNdvi <- ifelse(nanLocation$ndvi >= 0.10 & 
+                                   nanLocation$ndvi < 0.20, 0.5,
+                                 ifelse(nanLocation$ndvi >= 0.20 &
+                                          nanLocation$ndvi <= 0.30, 1, 2))
+
+# Sumamos la puntuación final. 
+nanLocation$totalScore <- with(nanLocation, elementScore + scoreNdvi)
+
+airbnb$review_scores_location <- ifelse(is.na(airbnb$review_scores_location),
+                                        nanLocation$totalScore,
+                                        airbnb$review_scores_location)
+
+summary(airbnb$review_scores_location)
+```
+
+```{r message= FALSE, warning=FALSE}
+ndvitrans[1,]
+```
+Observamos que ni la mediana ni la media han variado mucho.
+
+
+Seguidamente, obtendremos el número total de comodidades que se ofertan en el anuncio. 
+
+Creamos columna: **total_amenities**
+
+```{r message= FALSE, warning=FALSE}
+#Getting total amenities
+airbnb$total_amenities <- ifelse(nchar(airbnb$amenities)>2, str_count(airbnb$amenities, ',')+1, 0)
+airbnb$amenities <- NULL
+```
+
+
+A continuación, trabajaremos con la columna price.
+
+**price**
+
+```{r message= FALSE, warning=FALSE}
+# Passamos price a numérico
+airbnb$price<-sub(".*?\\$", "", airbnb$price)
+airbnb$price<-sub("?\\,", "", airbnb$price)
+airbnb$price <- as.numeric(airbnb$price)
+# Convertimos de dólares a euros.
+airbnb$price <- round(with(airbnb, price * 0.933599), 2)
+```
+
+En el caso del precio, le hemos eliminado el símbolo del dólar, convertido a numérico y hemos hecho la conversión a euros.
+
+A continuación, nos fijaremos en posibles valores atípicos que hemos detectado en la variable precio.
+
+
+```{r message= FALSE, warning=FALSE}
+hist(airbnb$price,
+     xlab = "Precio por noche",
+     main = "Distribución de los precios por noche",
+     col = "#0000B6")
+```
+
+Vemos claramente un sesgo importante en la variable precio. Observando la distribución en observaciones < 350€ vemos que la asimetría positiva no es tan pronunciada.
+
+```{r message= FALSE, warning=FALSE}
+ggplot(airbnb[!(airbnb$price > 350),], aes(x=airbnb$price[!(airbnb$price > 350)]))+
+  geom_boxplot()
+
+hist(airbnb$price[airbnb$price < 350],
+     xlab = "Total listings",
+     main = "Listings distribution",
+     col = "#0000B6")
+```
+
+
+Cabe destacar, que los rangos de precios pueden ser muy caóticos, ya que los huéspedes, a veces, suelen equivocarse con el precio ofertado y el calendario. Veamos qué tipos de ofertas son los que tienen un precio mayor de 350€.
+
+```{r message= FALSE, warning=FALSE}
+table(airbnb$room_type[airbnb$price > 350])
+```
+
+Vemos como las casas o apartamentos privados son los que tienen un precio máximo más elevado.
+
+```{r message= FALSE, warning=FALSE}
+print(paste0("Porcentaje de observaciones que transformaremos de price: ", round(100-(nrow(airbnb[airbnb$price < 350,])*100)/nrow(airbnb), 2), " que son un total de ", nrow(airbnb[airbnb$price > 350,]))) 
+
+summary(airbnb$price)
+```
+
+Vemos que las observaciones las cuales vamos a modificar el precio no son tantas. 
+
+```{r message= FALSE, warning=FALSE}
+airbnb$price[airbnb$price > 350] <- 350
+summary(airbnb$price)
+```
+
+De hecho, podemos ver como la media y la mediana se han acercado más, con lo que nos indica que hemos disminuido el sesgo tan pronunciado que había al principio.
+
+A continuación, crearemos una nueva columna: total_points_interest. Creemos que los puntos de interés nos pueden ayudar a saber qué barrios son más populares. Sí que es verdad, que probablemente esta característica ya esté contemplada en la variable review_score_location, pero hemos querido enfatizar con estos puntos de interés, ya que creemos que son importantes a remarcar y tener en cuenta.
+
+```{r message= FALSE, warning=FALSE}
+# Points of interest
+# https://opendata-ajuntament.barcelona.cat/data/es/dataset/punts-informacio-turistica
+
+interest <- read.csv("data/int.csv", sep = ",", fileEncoding="latin1")
+length(interest$register_id)
+```
+
+Vemos que hay un total 871 puntos de interés. Nos hemos dado cuenta que hay unas cuantas observaciones que estan mal formateadas. 
+
+```{r message= FALSE, warning=FALSE}
+
+# Guardamos en toClean aquellas filas que no se han separado bien.
+toClean <- interest[interest$addresses_neighborhood_name == "",]
+# Guardamos en interest las demás filas.
+interest <- interest[!(interest$addresses_neighborhood_name == ""),]
+
+# Solo nos interesa el nombre, ya que luego haremos una agrupación por nombre.
+interest <- interest$addresses_neighborhood_name
+interest <- as.data.frame(interest)
+# Para el caso de las filas mal separadas, nos guardamos la columna que nos interessa.
+toClean <- toClean$register_id
+
+
+# Creamos df cleanedData donde guardaremos la información necesaria de toClean.
+cleanedData <- data.frame(interest = character(), stringsAsFactors = FALSE)
+
+# Iteramos y hemos de tener en cuenta que nos podemos encontrar con ",", \" y/o [0-9]
+
+for (i in toClean){
+  
+  point <- unlist(strsplit(i, ","))[14]
+  
+  if (startsWith(point, "\"")){
+    point <- unlist(strsplit(i, "\""))[2]
+    cleanedData <- rbind(cleanedData, data.frame(point, stringsAsFactors = FALSE))
+  }
+  else if (grepl("[0-9]", point)){
+    point <- unlist(strsplit(i, ","))[15]
+    cleanedData <- rbind(cleanedData, data.frame(point, stringsAsFactors = FALSE))
+  }
+  else {
+    cleanedData <- rbind(cleanedData, data.frame(point, stringsAsFactors = FALSE))
+  }
+}
+names(cleanedData) <- "interest"
+
+# Juntamos los datos limpios con los limpiados.
+pointsInterest <- rbind(interest, cleanedData)
+# Agregamos.
+pointsInterestAgg <- aggregate(pointsInterest$interest, by=list(Category=pointsInterest$interest), FUN= length)
+
+# Observamos que algunos nombres difieren del df original. Normalizamos los datos para que casen bien.
+pointsInterestAgg$Category[!pointsInterestAgg$Category %in% airbnb$neighbourhood_cleansed]
+
+pointsInterestAgg$Category[pointsInterestAgg$Category == "el Poble-sec"] <- "el Poble Sec"
+names(pointsInterestAgg)[1] <- "neighbourhood_cleansed"
+names(pointsInterestAgg)[2] <- "total_points_interest"
+
+# Finalmente hacemos merge con airbnb.
+airbnb = merge(x = airbnb, y = pointsInterestAgg, by = "neighbourhood_cleansed")
+```
+
+
+Seguidamente, calcularemos la rentabilidad bruta y la añadiremos como nueva columna. Esta variable tendrá una imprecisión notable, ya que los valores han sido extraídos a partir de la media del precio * m2 de cada barrio. Como en nuestro caso, no disponemos de los m2 de cada inmueble ofertado en Airbnb tendremos que extraer la media del precio total entre inmuebles de 90m2, 100m2, 110m2 y 120m2.
+
+Además, tampoco sabemos cuanto factura cada inmueble al año. Así que hemos calculado la media de días disponibles que tiene cada piso en las diferentes disponibilidades que hay en el juego de datos y lo hemos multiplicado por el precio ofertado. A partir de aquí, hemos sacado la rentabilidad por:
+
+$$
+Rentabilidad = \frac{ingresos·año}{precio compraventa} · 100
+$$
+
+```{r message= FALSE, warning=FALSE}
+# Price * m2 BCN
+# https://ajuntament.barcelona.cat/estadistica/angles/Estadistiques_per_temes/Habitatge_i_mercat_immobiliari/Mercat_immobiliari/Preu_oferta_habitatge_segona_ma/evo/t2mab.htm
+
+
+pricem2 <- read.csv("data/pricem2.csv", sep = ";", fileEncoding="latin1")
+
+pricem2
+```
+
+
+Podemos ver que algunos valores tienen espacios en blanco y se tendrian que eliminar.
+
+```{r message= FALSE, warning=FALSE}
+pricem2 <- pricem2 %>% 
+  mutate(across(where(is.character), str_trim))
+
+# Después de eliminar los espacios en blanco laterales pasamos la columna a numérica.
+pricem2$a2022 <- as.numeric(pricem2$a2022)
+
+# Calculamos la media del precio para distintos pisos con medidas diferentes.
+pricem2$m2Is90 <- round(with(pricem2, a2022 * 90), 2)
+pricem2$m2Is100 <- round(with(pricem2, a2022 * 100), 2)
+pricem2$m2Is110 <- round(with(pricem2, a2022 * 110), 2)
+pricem2$m2Is120 <- round(with(pricem2, a2022 * 120), 2)
+pricem2$meanPrice <- with(pricem2, (m2Is90+m2Is100+m2Is110+m2Is120)/4)
+names(pricem2)[1] <- "neighbourhood_cleansed"
+pricem2[ ,c('a2022', 'm2Is90', 'm2Is100', 'm2Is110','m2Is120'
+)] <- list(NULL)
+
+# Nos hemos dado cuenta que algunos nombres de barrio no estan igual que en el df original de airbnb. A continnuación normalizarmos los nombres.
+
+pricem2$neighbourhood_cleansed[!pricem2$neighbourhood_cleansed %in% airbnb$neighbourhood_cleansed]
+
+pricem2$neighbourhood_cleansed[pricem2$neighbourhood_cleansed == "el Poble Sec-AEI Parc Montjuïc"] <- "el Poble Sec"
+pricem2$neighbourhood_cleansed[pricem2$neighbourhood_cleansed == "Sants-Badal"] <- "Sants - Badal"
+pricem2$neighbourhood_cleansed[pricem2$neighbourhood_cleansed == "Sant Gervasi-Galvany"] <- "Sant Gervasi - Galvany"
+pricem2$neighbourhood_cleansed[pricem2$neighbourhood_cleansed == "Sant Gervasi-la Bonanova"] <- "Sant Gervasi - la Bonanova"
+pricem2$neighbourhood_cleansed[pricem2$neighbourhood_cleansed == "la Marina del Prat Vermell-AEI Zona Franca"] <- "la Marina del Prat Vermell"
+
+# Barris que no estan a airbnb
+# Baró de Viver, Ciutat Meridiana, la Clota i Vallbona
+
+airbnb = merge(x = airbnb, y = pricem2, by = "neighbourhood_cleansed")
+airbnb$rentability <- round(with(airbnb, ((price*((availability_30+availability_60+availability_90+availability_365)/4))/meanPrice)*100), 2)
+
+```
+
+
+Seguidamente, calcularemos la media de incremento de inscripciones de host por año y por barrio. Además, calcularemos la tendencia. En ambos casos tendremos en cuenta el conjunto de todos los años (2009 - 2022) y de los últimos 5 años (2017 - 2022). 
+
+El resultado serán 4 columnas nuevas: 
+
+- **averageIncrementInsc**: La media incremental de inscritos.
+- **averageIncrementInsc5**: La media incremental de los últimos 5 años.
+- **tendency**: Pendiente del grado de inclinación de la línea que nos muestra la regresión lineal simple. Es decir, nos muestra la tendencia de las inscripciones de todos los años analizados.
+- **tendency5**: Tendencia de los últimos 5 años.
+
+Lo primero que haremos será coger el año de las observaciones.
+
+```{r message= FALSE, warning=FALSE}
+
+airbnb$year <- as.numeric(format(as.Date(airbnb$host_since, format="%Y-%m-%d"),"%Y"))
+
+# Agregamos por año y barrios. Agruparemos el nombre de inscritos.
+averageInsYearNeigh <- aggregate(airbnb$year, by=list(Category=airbnb$neighbourhood_cleansed, airbnb$year), FUN= length)
+
+# Pivotamos el df.
+
+averageInsYearNeigh <- as.data.frame(pivot_wider(averageInsYearNeigh, names_from = Group.2, values_from = x))
+
+# Substituimos NA por 0. Entendemos que si no hay datos sobre un año quiere decir que no ha habido inscritos (lo qual es poco probable).
+averageInsYearNeigh <- replace(averageInsYearNeigh, is.na(averageInsYearNeigh), 0)
+colnames(averageInsYearNeigh) <- c("neighbourhood_cleansed", "a2009", "a2010", "a2011", "a2012", "a2013", "a2014", "a2015", 
+                                   "a2016", "a2017", "a2018", "a2019", "a2020", "a2021", "a2022")
+
+inscritos <- averageInsYearNeigh[2:15]
+len <- 1:14 # Todos los años.
+len5 <- 9:14 # Últimos 5 años 
+
+# Usamos apply para calcular la media incremental.
+averageInsYearNeigh$averageIncrementInsc <- round(apply(inscritos, 1, function(x) mean(diff(x))), 2)
+# Hacemos los mismo pero para los últimso 5 años.
+averageInsYearNeigh$averageIncrementInsc5 <- round(apply(inscritos[9:14], 1, function(x) mean(diff(x))), 2)
+
+# Calculamos la tendencia.
+averageInsYearNeigh$tendency <- round(apply(inscritos, 1, function(x) coef(lm(x ~ len))[2]), 2)
+# Tendencia de los últimos 5 años.
+averageInsYearNeigh$tendency5 <- round(apply(inscritos[9:14], 1, function(x) coef(lm(x ~ len5))[2]), 2)
+
+# Eliminamos columnas que ya no necesitamos.
+averageInsYearNeigh[ ,c("a2009", "a2010", "a2011", "a2012", "a2013", "a2014", "a2015", 
+                        "a2016", "a2017", "a2018", "a2019", "a2020", "a2021", "a2022"
+)] <- list(NULL)
+
+# Juntamos con airbnb.
+airbnb = merge(x = airbnb, y = averageInsYearNeigh, by = "neighbourhood_cleansed")
+
+summary(airbnb$averageIncrementInsc)
+sd(averageInsYearNeigh$averageIncrementInsc)
+```
+
+Observamos una unos valores un tanto dispersos. De hecho, la desviación estándard nos muestra una dispersión de 0.98. 
+
+```{r message= FALSE, warning=FALSE}
+summary(airbnb$averageIncrementInsc5)
+```
+
+En el caso de los últimos 5 años, los indicadores són más dispersos, con una sd de 3.22.
+
+```{r message= FALSE, warning=FALSE}
+summary(airbnb$tendency)
+```
+
+
+La tendencia nos muestra algo parecido a la media incremental.
+
+```{r message= FALSE, warning=FALSE}
+summary(airbnb$tendency5)
+```
+
+
+Mientras que en los últimos 5 años la dispersión aumenta todavía más.
+
+Por lo tanto, todo indica que en los últimos años las inscripciones de nuevos host ha caído bastante. 
+
+
+Por último, crearemos una variable dependiente que nos diga que pisos/casas ofertadas en Airbnb pueden ser seguras. Es decir, tendremos en cuenta la media de reseñas por mes que recibe el barrio, con lo cual nos indicará si un barrio es muy frecuentado o no. En este caso, tendremos en cuenta que el resultado sea mayor a su media; la puntuación de la localización del inmueble que sea mayor de 4, ya que entendemos que una valoración superior a 4/5 es buena; que la rentabilidad calculada sea mayor de 4. Según algunas páginas en internet como [esta](https://www.rentila.es/blog/cuanto-es-realmente-su-inversion-inmobiliaria-de-alquiler/) nos indican que una buena inversión es cuando la rentabilidad da más del 4%. Es importante destacar, que este valor es respecto la rentabilidad neta. En nuestro caso solo hemos calculado la rentabilidad bruta, pero como estamos experimentando, lo dejaremos así.
+
+Definimos la variable dependiente.
+
+```{r message= FALSE, warning=FALSE}
+airbnb$isSecure <- ifelse(airbnb$average_reviews_neighb > 1.51 & airbnb$review_scores_location > 4 &
+                            airbnb$rentability > 4 & airbnb$total_points_interest > 0 , 1, 0)
+
+table(airbnb$isSecure)
+
+```
+
+Tenemos un total de 522 ofertas que son seguras con respecto a la rentabilidad y frecuencia de turismo en la zona. Es una cifra bastante baja y que puede causar problemas en los modelos más adelante.
+
+
+# Análisis Exploratorio de los Datos (EDA)
+
+En este apartado aprofundizaremos todavía más con las características de nuestro juego de datos. Veremos con más detalle la relación entre las variables.
+
+En primer lugar, veremos en que barrios hay más anuncios. Para ello agruparemos el total de anuncios que tiene cada host por barrios. Podéis pasar el ratón por encima de los barrios para ver la información.
+
+**Anuncios publicados por barrios**
+
+```{r message= FALSE, warning=FALSE}
+
+total_listings <- aggregate(airbnb$host_total_listings_count, by=list(Category=airbnb$neighbourhood_cleansed), FUN = sum)
+names(total_listings)[1] <- "neighbourhood_cleansed"
+names(total_listings)[2] <- "tlp_neighbourhood"
+
+neighbor <- readOGR("data/BCN_UNITATS_ADM/0301040100_Barris_UNITATS_ADM.shp",
+                    layer = "0301040100_Barris_UNITATS_ADM", GDAL1_integer64_policy = TRUE)
+
+neighbor <- merge(neighbor, total_listings[ , c("neighbourhood_cleansed", "tlp_neighbourhood")], by.x=c("NOM"),
+                 by.y=c("neighbourhood_cleansed"), all.x = TRUE)
+
+north.arrow.icon <- "<img src='https://upload.wikimedia.org/wikipedia/commons/8/84/North_Pointer.svg' style='width:40px;height:60px;'>"
+
+labels_gen <- c("NA", "< 230", "230-1032", "1032-6946", "> 6946")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+
+labels <- sprintf(
+  "<strong>%s:</strong><br/><strong>%g</strong> anuncios publicados en este barrio</sup>",
+  neighbor@data$NOM, neighbor@data$tlp_neighbourhood
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Anuncios publicados",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~colorQuantile("YlOrRd", tlp_neighbourhood)(tlp_neighbourhood),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+Como era de esperar, el centro de BCN es donde hay más ofertas de inmuebles para uso turístico. La dreta de l'Eixample es la que tiene más anuncios con un total de aproximadamente unos 63 mil. De hecho, podemos ver como se dibujan las 3 zonas que hemos comentado al principio.
+
+A continuación, mostraremos el número de inscritos por años.
+
+**Inscripciones por año**
+
+```{r message= FALSE, warning=FALSE}
+# Inscripciones por año
+
+yearSeries <- airbnb[c("host_id", "host_since")]
+yearSeries$year <- as.numeric(format(as.Date(yearSeries$host_since, format="%Y-%m-%d"),"%Y"))
+
+yearSeries <- aggregate(yearSeries$host_id, by=list(Category=yearSeries$year), FUN= length)
+names(yearSeries)[1] <- "year"
+names(yearSeries)[2] <- "total_host"
+
+ggplot() + geom_line(data = yearSeries, aes(
+  x = year,
+  y = total_host))+ 
+  scale_x_continuous(breaks = 2009:2022) +
+  labs(x = "Date", y = "Host inscriptions")+
+  ggtitle("Host inscriptions by year 2009 - 2022")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+Esta gráfica es interesante. Nos muestra el número de inscripciones por años de nuevos host en la plataforma de Airbnb. 
+
+Vemos que en 2009, cuando se empezó a utilizar Airbnb en España, las inscripciones llegaron por encima de 1000 hasta 2012. Después de la crisis financiera de 2008, en España, en 2009 se podía utilizar la plataforma de Airbnb para alquilar todo o parte de un inmueble. Observamos que a partir del 2013, el número de inscripciones baja, puede ser que la segunda recesión influyera hasta 2014, donde encontramos una ligera remontada. No obstante, el número de inscripciones ya no será igual que en el 2013. En el 2019, con la pandemia, caen en picado y se denota una débil subida en 2021, pero como podemos ver, la tendencia es a la baja.
+
+
+A continuación, veremos los últimos 4 años por mes.
+
+**Número de inscripciones por meses en los últimos 4 años**
+
+```{r message= FALSE, warning=FALSE}
+# Series por meses
+monthSeries <- airbnb[c("host_id", "host_since")]
+monthSeries$month <- as.numeric(format(as.Date(monthSeries$host_since, format="%Y-%m-%d"),"%m"))
+monthSeries$year <- as.numeric(format(as.Date(monthSeries$host_since, format="%Y-%m-%d"),"%Y"))
+monthSeries <- monthSeries[monthSeries$year >= 2019,]
+monthSeries$year <- factor(monthSeries$year)
+
+monthSeries <- aggregate(monthSeries$host_id, by=list(Category=monthSeries$month, monthSeries$year), FUN= length)
+names(monthSeries)[1] <- "months"
+names(monthSeries)[2] <- "year"
+names(monthSeries)[3] <- "total_host"
+
+ggplot() + geom_line(data = monthSeries, aes(
+  x = months,
+  y = total_host, 
+  color = year))+ 
+  scale_x_continuous(breaks = 1:12) +
+  labs(x = "Date", y = "Host inscriptions")+
+  ggtitle("Host inscriptions by month and year 2019 - 2022")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+En la primavera de 2019 se observa un aumento considerable de inscripciones. Normalmente, en estas fechas es cuando el número de inscripciones es superior, para así dar respuesta a la demanda turística de verano. No obstante, a partir de ese verano, las cifras ya no han vuelto a ser las mismas. En diciembre de ese mismo se detectó el virus COVID-19 en Wuhan. En enero de 2020, la OMS declaró la emergencia de salud pública internacional, y en marzo ya se consideró pandemia. En abril del 2020, con el estado de alarma decretado por el Gobierno, hay la mayor caída de inscripciones. 
+
+Por último, vemos que 2022 es también uno de los años más bajos en inscripciones. En enero de ese mismo año entró en vigor el Plan especial urbanístico de alojamientos turísticos (PEUAT), con lo que se empezó a limitar el número de inscripciones en distintas áreas de BCN.
+
+Seguidamente, veremos el precio medio por año.
+
+**Precio medio por año**
+
+```{r message= FALSE, warning=FALSE}
+# Precio medio por año
+
+yearSeriesPrice <- airbnb[c("host_since", "price")]
+yearSeriesPrice$year <- as.numeric(format(as.Date(yearSeriesPrice$host_since, format="%Y-%m-%d"),"%Y"))
+
+yearSeriesPrice <- aggregate(yearSeriesPrice$price, by=list(Category=yearSeriesPrice$year), FUN= mean)
+names(yearSeriesPrice)[1] <- "year"
+names(yearSeriesPrice)[2] <- "mean_price"
+
+yearSeriesPrice$mean_price <- round(yearSeriesPrice$mean_price, 2)
+
+ggplot() + geom_line(data = yearSeriesPrice, aes(
+  x = year,
+  y = mean_price))+ 
+  scale_x_continuous(breaks = 2009:2022) +
+  labs(x = "Date", y = "Mean price listings")+
+  ggtitle("Mean price listings by year 2009 - 2022")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+yearSeries['mean_price'] <- yearSeriesPrice$mean_price
+
+```
+
+
+En la gráfica de arriba se nos muestra la evolución del precio medio por año que han tenido los anuncios en BCN. Vemos claramente como el mayor pico lo tenemos al principio, en 2009 cuando empezó y en 2012. Después de esos años, la tendencia ha sido a la baja, hasta situarse en los 72.25€ de media en 2022. 
+
+
+**Evolución de la cualificación general de los huéspedes**
+
+```{r message= FALSE, warning=FALSE}
+# Evolución de la cualificación general de los huéspedes.
+
+yearSeriesScore <- airbnb[c("review_scores_rating", "host_since")]
+yearSeriesScore$year <- as.numeric(format(as.Date(yearSeriesScore$host_since, format="%Y-%m-%d"),"%Y"))
+
+yearSeriesScore <- aggregate(yearSeriesScore$review_scores_rating, by=list(Category=yearSeriesScore$year), FUN= mean)
+names(yearSeriesScore)[1] <- "year"
+names(yearSeriesScore)[2] <- "mean_score"
+
+ggplot() + geom_line(data = yearSeriesScore, aes(
+  x = year,
+  y = mean_score))+ 
+  scale_x_continuous(breaks = 2009:2022) +
+  labs(x = "Date", y = "Mean score")+
+  ggtitle("Mean score by year 2009 - 2022")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+En la gráfica de arriba vemos la evolución de la puntuación que dejan los huéspedes tras su estancia. Observamos que la máxima puntuación se sitúa en el 2009, cuando empezó i en el 2014. Curiosamente, vemos un pico negativo en 2011, que corresponde con los años cuando el precio medio por noche superaba los 130€. Después de eso, vemos que la tendencia ha ido a la baja. 
+
+A continuación, veremos el número de reseñas por año.
+
+**Número de reseñas por año**
+
+```{r message= FALSE, warning=FALSE}
+# Número de reseñas por año
+
+yearSeriesReview <- airbnb[c("number_of_reviews", "host_since")]
+yearSeriesReview$year <- as.numeric(format(as.Date(yearSeriesReview$host_since, format="%Y-%m-%d"),"%Y"))
+
+yearSeriesReview <- aggregate(yearSeriesReview$number_of_reviews, by=list(Category=yearSeriesReview$year), FUN= sum)
+names(yearSeriesReview)[1] <- "year"
+names(yearSeriesReview)[2] <- "number_reviews"
+yearSeriesReview$percentage <- round(yearSeriesReview$number_reviews/sum(yearSeriesReview$number_reviews)*100, 2)
+
+ggplot() + geom_line(data = yearSeriesReview, aes(
+  x = year,
+  y = percentage))+ 
+  scale_x_continuous(breaks = 2009:2022) +
+  labs(x = "Date", y = "percentage of reviews")+
+  ggtitle("Number of reviews by year 2009 - 2022")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Observamos como el número de reseñas nos puede indicar el número de turistas que visitaron BCN y se alojaron en un establecimiento inscrito en Airbnb. Vemos claramente como en los años que más inscripciones hubo en la plataforma fue cuando más reseñas hay registradas. A partir del 2013, el número de reseñas cae drásticamente.
+
+Seguidamente, mostraremos algunas variables por barrios.
+
+**Precio medio por barrios** 
+
+```{r message= FALSE, warning=FALSE}
+# El precio medio por barrios.
+
+neighPrice <- airbnb[c("price", "neighbourhood_cleansed")]
+
+neighPrice <- aggregate(neighPrice$price, by=list(Category=neighPrice$neighbourhood_cleansed), FUN= mean)
+names(neighPrice)[1] <- "neighborhood"
+names(neighPrice)[2] <- "mean_price"
+
+neighbor <- merge(neighbor, neighPrice[ , c("neighborhood", "mean_price")], by.x=c("NOM"),
+                  by.y=c("neighborhood"), all.x = TRUE)
+
+labels_gen <- c("NA", "< 67", "67-82", "82-96", "> 96")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+
+labels <- sprintf(
+  "<strong>%s:</strong><br/>Precio medio: <strong>%g</strong>€</sup>",
+  neighbor@data$NOM, neighbor@data$mean_price
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Preu mig (2009-2022)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~colorQuantile("YlOrRd", mean_price)(mean_price),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+Vemos claramente en el mapa como la zona céntrica tiende a ser la más cara, además del barrio de Vallvidrera, el Tibidabo i les Planes. Observamos también como varían los precios de la zona más próxima al aeropuerto (oeste de BCN), y la parte más próxima a Santa Coloma de Gramanet, Montcada i Reixac (nord-este) de la ciudad.
+
+En el próximo mapa mostraremos el número de inscripciones por barrio.
+
+**Total de inscripciones por barrios**
+
+```{r message= FALSE, warning=FALSE}
+# Neigborhoods by host inscriptions 
+
+neighHost <- airbnb[c("host_id", "neighbourhood_cleansed")]
+
+neighHost <- aggregate(neighHost$host_id, by=list(Category=neighHost$neighbourhood_cleansed), FUN= length)
+names(neighHost)[1] <- "neighborhood"
+names(neighHost)[2] <- "host_inscription"
+
+neighbor <- merge(neighbor, neighHost[ , c("neighborhood", "host_inscription")], by.x=c("NOM"),
+                  by.y=c("neighborhood"), all.x = TRUE)
+
+labels_gen <- c("NA", "< 17", "17-170", "170-207", "> 207")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+
+labels <- sprintf(
+  "<strong>%s:</strong><br/>Número de inscripciones: <strong>%g</strong></sup>",
+  neighbor@data$NOM, neighbor@data$host_inscription
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Inscripciones (2009-2022)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~colorQuantile("YlOrRd", host_inscription)(host_inscription),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+El número de inscripciones por barrio muestra una dinámica que ya hemos estado viendo a lo largo del proyecto. La zona céntrica es donde ha habido más inscripciones, siendo la Dreta de l'Eixample el que más con 1573 inscripciones. A diferencia de los barrios más periféricos que han tenido menos inscripciones. 
+
+
+**Total de superhosts por barrios**
+
+```{r message= FALSE, warning=FALSE}
+# Neigborhoods by superhost
+
+neighSuperHost <- airbnb[c("host_is_superhost", "neighbourhood_cleansed")]
+neighSuperHost <- neighSuperHost[neighSuperHost$host_is_superhost == "t",]
+neighSuperHost <- aggregate(neighSuperHost$host_is_superhost, by=list(Category=neighSuperHost$neighbourhood_cleansed), FUN= length)
+names(neighSuperHost)[1] <- "neighborhood"
+names(neighSuperHost)[2] <- "SuperHost"
+
+
+neighbor <- merge(neighbor, neighSuperHost[ , c("neighborhood", "SuperHost")], by.x=c("NOM"),
+                  by.y=c("neighborhood"), all.x = TRUE)
+labels_gen <- c("NA", "< 4", "4-42", "42-46", "> 46")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+
+labels <- sprintf(
+  "<strong>%s:</strong><br/>Número de superhost: <strong>%g</strong></sup>",
+  neighbor@data$NOM, neighbor@data$SuperHost
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Superhosts (2009-2022)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~colorQuantile("YlOrRd", SuperHost)(SuperHost),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+En el mapa de arriba se nos muestra el total de superhost por barrios. Entendemos por superhost lo siguiente:
+
+- Haber completado como mínimo 10 estancias o 3 reservas que sumen al menos 100 noches en total.
+- Haber mantenido un índice de respuesta del 90 % o un porcentaje superior.
+- Haber mantenido un índice de cancelación de menos del 1 %, salvo en el caso de las cancelaciones que contempla nuestra Política de Causas de Fuerza Mayor.
+- Haber mantenido una valoración general de 4,8. 
+
+Podéis tener más información sobre este tema [aquí](https://www.airbnb.es/help/article/829)
+
+Viendo esto, podemos ver que en el centro de la ciudad es donde hay más superhost. Recordamos, que es en esta zona donde hay más inscripciones y que esto hace que la proporción de superhost sea más elevada que el resto de barrios que se sitúan en la periferia.
+
+
+**Puntuación media por barrios**
+
+```{r message= FALSE, warning=FALSE}
+# Neigborhoods by mean_score
+
+neighScore <- airbnb[c("review_scores_rating", "neighbourhood_cleansed")]
+neighScore <- aggregate(neighScore$review_scores_rating, by=list(Category=neighScore$neighbourhood_cleansed), FUN= mean)
+names(neighScore)[1] <- "neighborhood"
+names(neighScore)[2] <- "Score"
+
+neighbor <- merge(neighbor, neighScore[ , c("neighborhood", "Score")], by.x=c("NOM"),
+                  by.y=c("neighborhood"), all.x = TRUE)
+labels_gen <- c("NA", "< 4.48", "4.48-4.55", "4.55-4.68", "> 4.68")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+
+labels <- sprintf(
+  "<strong>%s:</strong><br/>Media de puntuación: <strong>%g</strong></sup>",
+  neighbor@data$NOM, neighbor@data$Score
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Media de puntuación (2009-2022)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~colorQuantile("YlOrRd", Score)(Score),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+Sorprendentemente, los barrios donde hay menos inscritos y menos reseñas es donde la puntuación general de los huéspedes es más elevada que la de los barrios del centro. Esto nos puede hacer pensar que donde hay menos oferta, la calidad es mejor.
+
+**Rentabilidad por barrios**
+
+```{r message= FALSE, warning=FALSE}
+neighRenta <- airbnb[c("rentability", "neighbourhood_cleansed")]
+neighRenta <- aggregate(neighRenta$rentability, by=list(Category=neighRenta$neighbourhood_cleansed), FUN= mean)
+names(neighRenta)[1] <- "neighborhood"
+names(neighRenta)[2] <- "rentability"
+neighRenta$rentability <- round(neighRenta$rentability, 2)
+
+
+neighbor <- merge(neighbor, neighRenta[ , c("neighborhood", "rentability")], by.x=c("NOM"),
+                  by.y=c("neighborhood"), all.x = TRUE)
+labels_gen <- c("NA", "< 1.24", "1.24-1.66", "1.66-1.95", "> 1.95")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+
+labels <- sprintf(
+  "<strong>%s:</strong><br/>Rentabilidad media (bruta): <strong>%g</strong></sup>",
+  neighbor@data$NOM, neighbor@data$rentability
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Media de reseñas (2009-2022)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~colorQuantile("YlOrRd", rentability)(rentability),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+La rentabilidad por barrios es bastante baja en prácticamente todos los barrios. Si tenemos en cuenta que una rentabilidad buena tiene que ser sobre el 4%, vemos que solo la Marina del Prat Vermell cumple con este requisito.
+
+**Puntos de interés por barrios**
+
+```{r message= FALSE, warning=FALSE}
+
+pointInt <- aggregate(airbnb$total_points_interest, by=list(Category=airbnb$neighbourhood_cleansed), FUN=sum)
+
+pointInt$percentage <- round(pointInt$x/sum(pointInt$x)*100, 2)
+
+neighbor <- merge(neighbor, pointInt[ , c("Category", "percentage")], by.x=c("NOM"),
+                  by.y=c("Category"), all.x = TRUE)
+
+bins_rang <- c(0, 4, 8, 12, Inf)
+labels_gen <- c("NA", "< 4", "4-8", "8-12", "> 12")
+colors <- c("#9C9B9A","#FBFCB8", "#EDD49C", "#E8B286", "#D64C4D")
+pal_interest <- colorBin("YlOrRd", 
+                       domain = neighbor@data$percentage, 
+                       bins = bins_rang)
+labels <- sprintf(
+  "<strong>%s:</strong><br/>Puntos de interés: <strong>%g</strong>%%</sup>",
+  neighbor@data$NOM, neighbor@data$percentage
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Media de reseñas (2009-2022)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~pal_interest(percentage),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+```
+
+Vemos claramente como la Dreta de l'Eixample i la Vila de Gràcia son los barrios con más puntos de interés. El disponer de puntos de interés en un barrio puede ser un factor importante, ya que hace que haya un número de inscritos en Airbnb más elevado.
+
+## Análisis correlativo
+
+Acabaremos nuestro análisis exploratorio viendo la correlación entre las variables. Lo primero que haremos será pasar todas las variables dicotómicas de tipo character a binarias. En el caso de la variable room_type haremos un one hot para convertir las categorías en binarias en nuevas columnas.
+
+```{r message= FALSE, warning=FALSE, fig.width = 15, fig.width = 12}
+airbnb$host_is_superhost[airbnb$host_is_superhost == 'f'] <- 0
+airbnb$host_is_superhost[airbnb$host_is_superhost == 't'] <- 1
+airbnb$host_has_profile_pic[airbnb$host_has_profile_pic == 'f'] <- 0
+airbnb$host_has_profile_pic[airbnb$host_has_profile_pic == 't'] <- 1
+airbnb$host_identity_verified[airbnb$host_identity_verified == 'f'] <- 0
+airbnb$host_identity_verified[airbnb$host_identity_verified == 't'] <- 1
+airbnb$has_availability[airbnb$has_availability == 'f'] <- 0
+airbnb$has_availability[airbnb$has_availability == 't'] <- 1
+#airbnb$neighbourhood_cleansed <- NULL
+
+airbnb[ ,c("host_since", "reviews_per_month", "number_of_reviews","host_total_listings_count")] <- list(NULL)
+
+airbnb$host_is_superhost <- as.numeric(airbnb$host_is_superhost)
+airbnb$host_has_profile_pic <- as.numeric(airbnb$host_has_profile_pic)
+airbnb$host_identity_verified <- as.numeric(airbnb$host_identity_verified)
+airbnb$has_availability <- as.numeric(airbnb$has_availability)
+
+airbnb$room_type <- as.factor(airbnb$room_type)
+airbnb <- as.data.frame(one_hot(as.data.table(airbnb)))
+
+
+cor_airbnb <- round(cor(airbnb[2:38]), 1)
+corrplot(cor_airbnb, type = "upper", method = "color", order = 'hclust', diag = FALSE, 
+         number.cex=0.60, addCoef.col="black", tl.cex = 0.55, tl.srt = 45)
+```
+
+En el gráfico de arriba tenemos las correlaciones entre todas las variables de nuestro juego de datos. Hemos eliminado las columnas de host_since, reviews_per_month, number_of_reviews y host_total_listings_count porque ya no nos hacen falta.
+
+Podemos ver diferentes clústeres de correlaciones medianamente altas que se concentran en el número de camas, habitaciones, baños, capacidad de huéspedes con el precio, la rentabilidad.
+
+Destacamos también el precio medio por el total de m2 de las viviendas, que tiene una correlación negativa de 0.6 con la media incremental y la tendencia. Por lo tanto, podemos deducir que a medida que el incremento y la tendencia han ido a la baja, el precio medio ha subido. Todo parece indicar que a menor oferta de inmuebles turísticos, mayor el precio de compra de una vivienda. Pero esta afirmación no debemos de cogerla al pie de la letra, ya que esta correlación es respecto los últimos 5 años. Recordemos, que en este periodo de tiempo hemos pasado una pandemia, y este hecho ha podido desbarajustar los datos.
+
+También vemos la correlación de la rentabilidad con la disponibilidad que tiene cada inmueble turístico. Si la disponibilidad está dentro de los 365 días del año, la correlación es del 0.6. 
+
+Vemos además que cuanto más elevado es el precio, más seguro y rentable es. Y que este precio tiende a ser más elevado cuando es una casa entera que se está ofertando.
+
+# Modelado
+
+En esta parte del proyecto empezaremos con la etapa del modelado. Intentaremos dar con aquel modelo que tenga unos coeficientes más buenos. No obstante, como ya hemos comentado al principio, todo indica que el modelo va a tener problemas en predecir la variable objetivo a causa de los sesgos que hay en los datos, sobre todo en la variable dependiente. En el caso de que esto ocurra trataremos de utilizar un modelo más robusto como la regresión logística por mínimos cuadrados suavizados o haremos un muestreo estratificado basado en la variable dependiente o aplicaremos PCA. A un que, otra opción que podríamos hacer es un clustering para agrupar mejor los datos. Pero esta última opción no la llevaremos a cabo, ya que hemos determinado isSecure en base a una investigación previa.
+
+En primer lugar, trataremos la multicolinealidad. Es decir, miraremos qué variables son las más correlacionadas y no las tendremos en cuenta para nuestro modelo.
+
+```{r message= FALSE, warning=FALSE}
+
+nzv <- nearZeroVar(dplyr::select(airbnb))
+lis_det_clean_nzv <- airbnb[, -nzv]
+descrCor <- cor(airbnb[2:37])
+
+highlyCorrelated <- findCorrelation(descrCor, cutoff=0.7)
+
+highlyCorCol <- colnames(airbnb)[highlyCorrelated]
+
+highlyCorCol
+```
+
+
+Las variables que se nos muestran arriba no las tendremos en cuenta para nuestro modelo.
+
+## Regresión Logística Múltiple
+
+La Regresión Logística Múltiple nos permite predecir la probabilidad de que ocurra un evento binario. Este modelo se estructura en las variables predictoras y una variable dependiente. Una de las condiciones que son necesarias para la implementación de este algoritmo es que haya una baja multicolinealidad y que las variables predictoras sean independientes. La ecuación para obtener las predicciones sería:
+
+$$
+logit(p) = β_0 + β_1 x_1 + β_2 x_2 + ... + β_i x_i
+$$
+Donde obtendremos la probabilidad con:
+
+$$
+_p(y) = \frac{e^{β_0 + β_1 x_1 + β_2 x_2 + ... + β_i x_i}}{1+e^{β_0 + β_1 x_1 + β_2 x_2 + ... ++ β_i x_i}}
+$$
+
+- b0 es el intercepto, el cual representa el valor de p cuando x1, x2, ..., xn (valores de las variables predictoras) son iguales a cero.
+
+- b1, b2, ..., bn son los coeficientes de regresión para cada una de las variables predictoras x1, x2, ..., xn.
+
+- La función exponencial (e), la cual está elevada al resultado de la función lineal de las variables predictoras, sirve para transformar el valor resultante en una probabilidad.
+
+A continuación generaremos provaremos de crear el modelo con las variables siguientes.
+
+```{r message= FALSE, warning=FALSE}
+mlAirbnb <- airbnb[c("bathrooms", "accommodates", "price", "rentability",
+                     "room_type_Entire home/apt", "total_amenities",
+                     "average_reviews_neighb", "tendency", "total_points_interest",
+                     "meanPrice", "room_type_Private room", "availability_365", 
+                     "availability_90", "review_scores_location",
+                     "has_availability", "host_has_profile_pic", 
+                     "review_scores_rating", "host_is_superhost", 
+                     "host_identity_verified",
+                     "isSecure")]
+
+modelo_multiple <- glm(isSecure ~ .,
+                       data = mlAirbnb, family = binomial)
+
+# Comprobando multicolinealidad.
+require(car)
+vif(modelo_multiple)
+```
+
+Hemos comprobado la presencia de multicolinealidad con el factor de inflación de la varianza. No tendremos en cuenta aquellas variables con más de 5 de VIF. 
+
+Generamos otra vez el modelo. En este caso no hemos tenido en cuenta algunas variables que han sido descartadas porque su valor P-value eran mayores que 0.05. 
+
+
+```{r message= FALSE, warning=FALSE}
+mlAirbnb <- airbnb[c("accommodates","maximum_nights","availability_90",      
+                     "review_scores_location","prob_res_acc","average_reviews_neighb",
+                     "total_points_interest","tendency","isSecure")]
+
+```
+
+
+Procedemos ha realizar el modelo separando train i test.
+
+```{r message= FALSE, warning=FALSE}
+set.seed(123)
+trainIndex <- createDataPartition(mlAirbnb$isSecure, p = 0.7, list = FALSE)
+trainData <- mlAirbnb[trainIndex, ]
+testData <- mlAirbnb[-trainIndex, ]
+modelo_multiple1 <- glm(isSecure ~ ., data = trainData, family = binomial)
+summary(modelo_multiple1)
+```
+
+Generamos la matriz de confusión. 
+
+```{r message= FALSE, warning=FALSE}
+predictions1 <- predict(modelo_multiple1, newdata = testData, type = "response")
+predictedClasses1 <- factor(ifelse(predictions1 > 0.5, 1, 0), levels = c(0, 1))
+testLabels1 <- factor(testData$isSecure, levels = c(0, 1))
+confMatrix <- confusionMatrix(predictedClasses1, testLabels1)
+confMatrix
+```
+
+
+```{r message= FALSE, warning=FALSE}
+AUC1 <- performance(prediction(predictions1, predictedClasses1), measure = "auc")
+AUC1 <- unlist(AUC1@y.values)
+F1_1 <- round(confMatrix$byClass['F1'], 3)
+print(paste("AUC:", AUC1))
+print(paste("F1:", F1_1))
+
+```
+
+Repetiremos el proceso haciendo un muestreo estratíficado basado en la variable dependiente del 0.65.
+
+```{r message= FALSE, warning=FALSE}
+library(splitstackshape)
+
+mlAirbnbStrat <- stratified(mlAirbnb, "isSecure", 0.65)
+
+modelo_multiple_prueba <- glm(isSecure ~ .,
+                        data = mlAirbnbStrat, family = binomial)
+summary(modelo_multiple_prueba)
+
+```
+
+A continuación, en el siguiente modelo no tendremos en cuenta las variables predictoras con un p-value > 0.05.
+
+Separamos train i test.
+
+```{r message= FALSE, warning=FALSE}
+set.seed(123)
+trainIndex <- createDataPartition(mlAirbnbStrat$isSecure, p = 0.7, list = FALSE)
+trainData <- mlAirbnbStrat[trainIndex, ]
+testData <- mlAirbnbStrat[-trainIndex, ]
+modelo_multiple2 <- glm(isSecure ~ accommodates+maximum_nights+
+                         availability_90+review_scores_location+ 
+                         average_reviews_neighb, data = trainData, family = binomial)
+summary(modelo_multiple2)
+```
+
+Generamos la matriz de confusión. 
+
+```{r message= FALSE, warning=FALSE}
+predictions2 <- predict(modelo_multiple2, newdata = testData, type = "response")
+predictedClasses2 <- factor(ifelse(predictions2 > 0.5, 1, 0), levels = c(0, 1))
+testLabels2 <- factor(testData$isSecure, levels = c(0, 1))
+confMatrix <- confusionMatrix(predictedClasses2, testLabels2)
+confMatrix
+```
+
+
+```{r message= FALSE, warning=FALSE}
+AUC2 <- performance(prediction(predictions2, predictedClasses2), measure = "auc")
+AUC2 <- unlist(AUC2@y.values)
+F1_2 <- round(confMatrix$byClass['F1'], 3)
+print(paste("AUC:", AUC2))
+print(paste("F1:", F1_2))
+```
+
+A continuación aplicaremos una reducción de la dimensionalidad.
+
+**PCA**
+
+```{r message= FALSE, warning=FALSE}
+normalise <-function(x) { (x -min(x))/(max(x)-min(x))}
+tryPCA <- mlAirbnbStrat
+target <-tryPCA$isSecure
+tryPCA$isSecure <- NULL
+airbnb_pca_nm <- as.data.frame(lapply(tryPCA, normalise))
+pca_dumm_nm <- prcomp(airbnb_pca_nm)
+get_eig(pca_dumm_nm)
+```
+
+Con 4 dimensiones podemos explicar el 80%.
+
+```{r message= FALSE, warning=FALSE}
+airbnb_pca_es <- scale(airbnb_pca_nm)
+pca_dumm_es <- prcomp(airbnb_pca_es)
+var_airbnb_scale <- pca_dumm_es$sdev^2
+var_airbnb_scale
+```
+
+El método de Kaiser nos ayuda a extraer aquellos componentes principales cuyos valores propios (eigenvalues) son mayores que 1. Es decir, este valor propio es una medida de la varianza explicada por cada componente principal que hemos generafo. se basa en el criterio de que se deben retener los componentes principales cuyos valores propios (eigenvalues) sean mayores que 1. El valor propio es una medida de la varianza explicada por cada componente principal. Los valores propios mayores que 1 indican que la componente principal explica más varianza que una de las variables originales.
+Con el método de Káiser observamos que con los 4 primeros componentes ya hay una buena representación.
+
+```{r message= FALSE, warning=FALSE}
+PCs_seleccionadas <- c(1, 2, 3, 4)
+
+newMLairbnb <- cbind(pca_dumm_es$x[, PCs_seleccionadas], target)
+newMLairbnb <- as.data.frame(newMLairbnb)
+
+set.seed(123)
+trainIndex <- createDataPartition(newMLairbnb$target, p = 0.7, list = FALSE)
+trainData <- newMLairbnb[trainIndex, ]
+testData <- newMLairbnb[-trainIndex, ]
+
+modeloPCA <- glm(target ~ ., data = newMLairbnb, family = binomial)
+summary(modeloPCA)
+```
+
+Generamos matriz de confusión.
+
+
+```{r message= FALSE, warning=FALSE}
+
+predictions3 <- predict(modeloPCA, newdata = testData, type = "response")
+predictedClasses3 <- factor(ifelse(predictions3 > 0.5, 1, 0), levels = c(0, 1))
+testLabels3 <- factor(testData$target, levels = c(0, 1))
+confMatrix <- confusionMatrix(predictedClasses3, testLabels3)
+confMatrix
+
+```
+
+
+```{r message= FALSE, warning=FALSE}
+AUC3 <- performance(prediction(predictions3, predictedClasses3), measure = "auc")
+AUC3 <- unlist(AUC3@y.values)
+F1_3 <- round(confMatrix$byClass['F1'], 3)
+print(paste("AUC:", AUC3))
+print(paste("F1:", F1_3))
+```
+
+
+Por último, utilizaremos la regresión logística por mínimos cuadrados suavizados, ya que es un modelo más robusto frente a los sesgos.
+
+## Regresión logística por mínimos cuadrados suavizados SLS
+
+La Regresión logística por mínimos cuadrados suavizados es la misma regresión que hemos empleado anteriormente pero con una diferencia. En este algoritme se utiliza una función de suavizado para ajustar la curva de regresión a los datos. Esta función de suavizado puede ser una función polinómica o de splines por ejemplo. 
+
+```{r message= FALSE, warning=FALSE}
+
+set.seed(123)
+trainIndex <- createDataPartition(mlAirbnbStrat$isSecure, p = 0.7, list = FALSE)
+trainData <- mlAirbnbStrat[trainIndex, ]
+testData <- mlAirbnbStrat[-trainIndex, ]
+
+modelo_multiple4 <- vglm(isSecure ~ accommodates+maximum_nights+
+              availability_90+review_scores_location+ 
+              average_reviews_neighb,
+            family = binomialff, data = trainData, trace = TRUE, maxit = 200, 
+            weights = NULL)
+
+summary(modelo_multiple4)
+predictions4 <- predict(modelo_multiple4, newdata = testData, type = "response")
+predictedClasses4 <- factor(ifelse(predictions4 > 0.5, 1, 0), levels = c(0, 1))
+testLabels4 <- factor(testData$isSecure, levels = c(0, 1))
+
+confMatrix <- confusionMatrix(predictedClasses4, testLabels4)
+confMatrix
+```
+
+
+```{r message= FALSE, warning=FALSE}
+AUC4 <- performance(prediction(predictions4, predictedClasses4), measure = "auc")
+AUC4 <- unlist(AUC4@y.values)
+F1_4 <- round(confMatrix$byClass['F1'], 3)
+print(paste("AUC:", AUC4))
+print(paste("F1:", F1_4))
+```
+
+## Resumen
+
+
+| Modelos | AUC | F1    | Precisión | Sensibilidad | Especifidad | Kappa |
+|---------|-----|-------|-----------|--------------|-------------|-------|
+| M1      | 1   | 0.978 | 0.957     | 0.996        | 0.092       | 0.147 |
+| M2      | 1   | 0.973 | 0.947     | 0.997        | 0.054       | 0.088 |
+| M3      | 1   | 0.973 | 0.947     | 0.998        | 0.027       | 0.044 |
+| M4      | 1   | 0.973 | 0.947     | 0.997        | 0.054       | 0.088 |
+
+Vemos que en general, las métricas no son muy buenas.
+
+- El área por debajo de la curva de ROC nos enseña la capacidad predictiva del modelo, entre la relación de la tasa de verdaderos positivos y falsos positivos. Por lo que nos está indicando que el modelo puede distinguir a la perfección la clase positiva y negativa sin cometer errores.
+- La F1-score es prácticamente 1 en todos los modelos. Esta métrica se calcula a partir de la precisión y la sensibilidad que tenemos a la derecha. El resultado de F1 nos dice que el rendimiento general del modelo es casi perfecto. 
+- Tenemos una precisión alta, con lo que nos indica que la mayoría de las predicciones son correctas
+- Una sensibilidad también elevada. Esto significa que el modelo identifica casi a la perfección la clase 1.
+- La especificidad es muy baja, lo que significa que el modelo identifica correctamente un porcentaje muy bajo de las instancias de la clase 0.
+- El coeficiente Kappa es muy bajo en todos los modelos. Esto nos indica que la concordancia entre la predicción del modelo y la clase real no es muy alta. Lo que significa que el modelo podría ser mejorado.
+
+Podemos ver entonces que hay un desequilibrio en los datos y que este hecho puede ser debido al sesgo de la variable dependiente. 
+
+A continuación, haremos una prueba y utilizaremos el último modelo que hemos realizado (Regresión logística por mínimos cuadrados suavizados)
+
+```{r message= FALSE, warning=FALSE}
+nuevos_datos <- list("accommodates" = 10, "maximum_nights" = 365, "availability_90" = 90,
+                     "review_scores_location"= 5, "average_reviews_neighb" = 4)
+
+predict(modelo_multiple2, nuevos_datos, type = "response")
+```
+
+Según los valores introducidos en las variables predictoras, la probabilidad de que sea seguro tener un inmueble ofertado en Airbnb es del 100%.
+
+Pongamos unos valores diferentes en las predictoras.
+
+```{r message= FALSE, warning=FALSE}
+nuevos_datos <- list("accommodates" = 2, "maximum_nights" = 60, "availability_90" = 30,
+                     "review_scores_location"= 4, "average_reviews_neighb" = 2)
+
+predict(modelo_multiple2, nuevos_datos, type = "response")
+```
+
+Vemos como la probabilidad ha bajado al 1.4%.
+
+Cogeremos el último modelo para ver los resultados en un mapa.
+
+```{r message= FALSE, warning=FALSE}
+probabilities <- predict(modelo_multiple4, newdata = mlAirbnb, type = "response")
+airbnb$probIsSecure <- probabilities
+
+result <- aggregate(airbnb$probIsSecure, by=list(Category=airbnb$neighbourhood_cleansed), FUN= mean)
+result$x <- round(result$x, 5)
+names(result)[1] <- "neighbourhood_cleansed"
+names(result)[2] <- "probIsSecure"
+
+predictedClasses <- factor(ifelse(probabilities > 0.5, 1, 0), levels = c(0, 1))
+testLabels <- factor(mlAirbnb$isSecure, levels = c(0, 1))
+confusionMatrix(predictedClasses, testLabels)
+```
+
+Obtenemos las probabilidades y generamos el mapa final.
+
+```{r message= FALSE, warning=FALSE}
+neighbor <- merge(neighbor, result[ , c("neighbourhood_cleansed", "probIsSecure")], by.x=c("NOM"),
+                       by.y=c("neighbourhood_cleansed"), all.x = TRUE)
+
+bins_pib_gen <- c(0, 0.003, 0.009, 0.034, 0.1, Inf)
+labels_gen <- c("NA", "< 0.003", "0.003-0.009", "0.009-0.034", "0.034-0.1", "> 0.1")
+colors <- c("#9C9B9A", "#FBFCB8","#FDFF90","#FDE073","#EDD49C", "#E8B087")
+colorsl <- c( "#FBFCB8","#FDFF90","#FDE073","#edd49c", "#E8B087")
+pal <- colorBin(colorsl,
+          domain = neighbor@data$probIsSecure, 
+          bins = bins_pib_gen)
+labels <- sprintf(
+  "<strong>%s:</strong><br/><strong>%g</strong> de probabilidad de incremento de pisos de Airbnb</sup>",
+  neighbor@data$NOM, neighbor@data$probIsSecure
+) %>% lapply(htmltools::HTML)
+
+leaflet(st_transform(st_as_sf(neighbor), 4326)) %>%
+  addTiles() %>%
+  addControl(html = north.arrow.icon,
+             position = "bottomleft",
+             className = "fieldset {
+            border: 0;
+            }"
+  ) %>%
+  addLegend("bottomright",
+            colors = colors,
+            labels = labels_gen,
+            title = "Probabilidad (0-1)",
+            opacity = 1) %>%
+  addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+              opacity = 1.0, fillOpacity = 0.5,
+              fillColor = ~pal(neighbor@data$probIsSecure),
+              highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                  bringToFront = TRUE), 
+              label = labels,
+              options = pathOptions(mouseOver = "function(e){e.target.openPopup();}",
+                                    mouseOut = "function(e){e.target.closePopup();}"))
+
+```
+
+Como podemos ver, la probabilidad de que los barrios de Barcelona sean susceptibles al incremento de inmuebles turísticos es muy baja. De hecho, el valor más alto es 0.28% de probabilidades de que incremente la oferta en la Vila Olímpica del Poblenou. 
+
+
+```{r message= FALSE, warning=FALSE}
+summary(result$probIsSecure)
+```
+
+
+# Conclusiones
+
+A lo largo de este proyecto hemos podido realizar las etapas más importantes que se encuentran englobadas en la minería de datos.
+
+En primer lugar, hemos realizado una lectura previa de los datos, con lo cual nos ha facilitado en la fase de preprocesamiento identificar más fácilmente aquellas características que necesitaban ser tratadas. 
+
+En segundo lugar, hemos hecho diferentes transformaciones, discretizaciones, limpieza en general de los datos para así poder seleccionar y reducir la información. Hemos utilizado datos externos al propio juego de datos, con lo cual nos ha ayudado a enriquecer el conocimiento que podemos extraer de este proyecto. Es importante remarcar que todavía se podría enriquecer mucho más, siendo más precisos con las características de cada observación. Además, la investigación que se ha llevado a cabo para crear la variable dependiente se ha hecho con un propósito de experimentar con los datos.
+
+Hemos podido ver que la variable dependiente tenía una distribución sesgada, y eso nos ha llevado a tener que trabajar mucho más en el apartado de modelado.
+
+En tercer lugar, hemos ejecutado un análisis exploratorio de los datos (EDA), para así poder entender mucho mejor la historia que hay detrás de los datos. Hemos utilizado análisis univariantes, bivariantes y de correlación.
+
+Por último, hemos realizado la etapa de modelado. En este proyecto nos hemos decantado por utilizar una regresión logística múltiple, para así poder sacar la probabilidad de que se prediga 1. Es decir, en nuestro caso es obtener la probabilidad de que un barrio de BCN sea susceptible al incremento de inmuebles turísticos. 
+
+Uno de los problemas que hemos visto es el sesgo de la variable dependiente. Esto ha provocado que la concordancia entre la predicción del modelo y la clase real no sea muy alta.
+
+Para paliar este problema hemos utilizado diferentes aproximaciones, però los resultados no han mejorado. Por lo tanto, se podrían investigar otros modelos, analizar mejor las variables predictoras, realizar un clustering para agrupar los datos por características similares, etc. En cualquier caso, tener observaciones más equilibradas dentro de la variable dependiente nos podría ayudar a obtener unos resultados más efectivos en cualquier modelo.
