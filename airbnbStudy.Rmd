@@ -1,5 +1,10 @@
 ---
 title: 'LECTURA, PREPROCESAMIENTO, EDA Y MODELADO EN R'
+knit: (function(input_file, encoding) {
+    out_dir <- 'docs';
+    rmarkdown::render(input_file,
+      encoding=encoding,
+      output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "Autor: Sergi Payarol Calzado"
 date: "2023"
 output:
@@ -15,8 +20,9 @@ output:
   word_document: default
 ---
 
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(eval=T, echo=T)
+ knitr::opts_chunk$set(eval=T, echo=T)
 ```
 
 
